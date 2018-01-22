@@ -92,11 +92,11 @@ get_ghr() {
 gather_release_artefacts() {
     local artefact_dir="$1"
     local d="$(pwd)"
-    local pd=$bd/coreos
+    local pd=$d/coreos
     local bin_dir=$pd/_bin
     local cfg_dir=$pd/etc/amazon/ssm
     local svc_dir=$pd/etc/systemd/system
-    mkdir -p $artefact_dir $bin_dir $cfg_dir $PKG_DIR $svc_dir
+    mkdir -p $artefact_dir $bin_dir $cfg_dir $svc_dir
 
     echo "... copying built binaries " $(ls -1 $d/bin/linux_amd64 | grep -v updater)
     cp -a $d/bin/linux_amd64/{amazon-ssm-agent,ssm-cli,ssm-document-worker} $bin_dir
