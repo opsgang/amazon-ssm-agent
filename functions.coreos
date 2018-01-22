@@ -33,12 +33,15 @@ modify_src() {
 _rename_constant_DefaultDocumentWorker() {
     [[ ! -w "$1" ]] && echo "ERROR: can't write to $1" >&2 && return 1
     sed -i 's/^\([ \t]*DefaultDocumentWorker\)\( *=.*\)$/\1Path\2 /' $f
+    echo "... verifying constant has been renamed."
+    grep -P 'DefaultDocumentWorkerPath\s+=\s+' "$f"
 }
 
 _new_code_for_DefaultDocumentWorker() {
     [[ ! -w "$1" ]] && echo "ERROR: can't write to $1" >&2 && return 1
 
-    local f="$1" new_code="" single_line=""
+    local f="$1"
+    local new_code="" single_line=""
 
     new_code='
 package appconfig
@@ -72,6 +75,9 @@ var DefaultDocumentWorker = set_ssm_document_worker_path()
     sed -i "s#^[ \t]*package appconfig.*#$(echo -e "$single_line\n")#" $f || return 1
     gofmt -w $f || return 1
 
+    # ... verify lines were added, and print to stdout
+    echo "... verifying new code is there:"
+    cat $f | grep -A500 '^package appconfig' | grep -B500 '^var DefaultDocumentWorker' $f
 }
 
 _replace_repo_refs() {
