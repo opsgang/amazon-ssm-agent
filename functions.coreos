@@ -77,7 +77,7 @@ var DefaultDocumentWorker = set_ssm_document_worker_path()
 
     # ... verify lines were added, and print to stdout
     echo "... verifying new code is there:"
-    cat $f | grep -A500 '^package appconfig' | grep -B500 '^var DefaultDocumentWorker' $f
+    cat $f | grep -A500 '^package appconfig' | grep -B500 '^var DefaultDocumentWorker'
 }
 
 _replace_repo_refs() {
