@@ -1,0 +1,101 @@
+# vim: et sr sw=4 ts=4 smartindent syntax=sh:
+
+# ... get absolute path to repo top-level dir (where our scripts live)
+golang_version() {
+    local bd="${1:-$(pwd)}"
+    local f=$bd/vendor/src/golang.org/x/sys/unix/linux/Dockerfile
+    if ! grep -Po "ENV\s+GOLANG_VERSION\s+\K([\d\.]+)" $f
+    then
+        echo "ERROR: can not determine which version of go to use for Docker build image" >&2
+        return 1
+    fi
+}
+
+modify_src() {
+    local bd="${1:-$(pwd)}"
+    local f="$bd/agent/appconfig/constants_unix.go" # file to change
+    local sf=$bd/
+    local new_code="" single_line=""
+
+    # 1. ... replace existing assignment of DefaultDocumentWorker constant
+    sed -i 's/^\([ \t]*DefaultDocumentWorker\)\( *=.*\)$/\1Path\2 /' $f || return 1
+
+    # 2. ... append new definition that let's us use env var at agent run-time
+    new_code='
+package appconfig
+
+import (
+    "os"
+    "path/filepath"
+)
+
+// User can specify path to doc worker with env var $SSM_DOCUMENT_WORKER_PATH
+func set_ssm_document_worker_path() (DocumentWorker string) {
+    if _, ok := os.LookupEnv("SSM_DOCUMENT_WORKER_PATH"); ok {
+        DocumentWorker, _ = filepath.Abs(os.Getenv("SSM_DOCUMENT_WORKER_PATH"))
+    } else {
+        DocumentWorker = DefaultDocumentWorkerPath
+    }
+    return
+}
+
+// Original code uses constant which must be fixed at compile time.
+// So we use a package global var instead, letting us determine it at run-time.
+var DefaultDocumentWorker = set_ssm_document_worker_path()
+'
+
+    single_line=$(echo "$new_code" | sed -e 's#$#\\#' | sed -e '#^\\$#,#^#d' | sed -e 's#    #\\\t#g')
+    sed -i "s#^[ \t]package appconfig.*#$(echo -e "$single_line\n")#" $f || return 1
+    gofmt -w $f || return 1
+
+    # 3. ... replace refs to github.com/aws/amazon-ssm-agent with opsgang
+    local rc=0
+    for file in $(grep -rl 'github.com/aws/amazon-ssm-agent' $bd | grep -v "$(basename $0)"); do
+        echo "modifying $file"
+        sed -i "s#github\.com/aws/amazon-ssm-agent#github.com/opsgang/amazon-ssm-agent#g" $file || rc=1
+        if [[ $file =~ \.go$ ]]; then gofmt -w $file || rc=1 ; fi
+    done
+
+    return $rc
+
+}
+
+release_on_tag() {
+    if [[ "$IS_GIT_TAG" == "true" ]] && [[ "$GIT_TAG_NAME" =~ ^[0-9\.]+$ ]]; then
+        echo "... would build a release and upload artefacts" 
+        sudo wget -O /var/tmp/ghr.zip "${GHR}" || return 1
+        gather_release_artefacts || return 1
+        echo "shippable vars:" 
+        echo "BRANCH: $BRANCH" 
+        echo "IS_PULL_REQUEST: $IS_PULL_REQUEST" 
+        echo "IS_GIT_TAG : $IS_GIT_TAG" 
+        echo "GIT_TAG_NAME: (only if tag or release event): $GIT_TAG_NAME" 
+        echo "IS_RELEASE: $IS_RELEASE" 
+        echo "RELEASE_NAME: $RELEASE_NAME" 
+    else
+        echo "... not a release" 
+        find bin/linux_amd64 -type f
+        echo "shippable vars:" 
+        echo "BRANCH: $BRANCH" 
+        echo "IS_PULL_REQUEST: $IS_PULL_REQUEST" 
+        echo "IS_GIT_TAG : $IS_GIT_TAG" 
+        echo "GIT_TAG_NAME: (only if tag or release event): $GIT_TAG_NAME" 
+        echo "IS_RELEASE: $IS_RELEASE" 
+        echo "RELEASE_NAME: $RELEASE_NAME" 
+    fi 
+    [[ $rc -eq 0 ]]
+}
+
+gather_release_artefacts() {
+    local bd="${1:-$(pwd)}"
+    CFG_DIR=$bd/coreos/etc/amazon/ssm
+    BIN_DIR=$bd/coreos/_bin
+    SVC_DIR=$bd/coreos/etc/systemd/system
+    mkdir -p $CFG_DIR $SVC_DIR
+    cp -a $bd/bin/linux_amd64 $BIN_DIR
+    cp -a $bd/bin/amazon-ssm-agent.json.template $CFG_DIR/amazon-ssm-agent.json
+    cp $bd/bin/seelog_unix.xml $CFG_DIR/seelog.xml
+    cp $bd/packaging/linux/amazon-ssm-agent.service $SVC_DIR/amazon-ssm-agent.service
+    find $bd -type f
+}
+

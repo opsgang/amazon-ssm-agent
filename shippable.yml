@@ -1,0 +1,51 @@
+# vim: et sr sw=2 ts=2 smartindent:
+#
+# Set to only build on git tag events and pull requests
+# in shippable console.
+language: none
+
+branches:
+  only:
+    - coreos-*
+
+env:
+  global:
+    - GHR="https://github.com/tcnksm/ghr/releases/download/v0.5.4/ghr_v0.5.4_linux_amd64.zip"
+    - IMG_TAG="ci"
+
+build:
+
+  pre_ci:
+    - . functions.coreos ; export go_ver=$(golang_version) ;
+      docker pull golang:$go_ver &&
+      docker tag golang:$go_ver opsgang/golang:${IMG_TAG}
+
+  pre_ci_boot:
+    image_name: opsgang/golang
+    image_tag: ${IMG_TAG}
+    pull: false
+
+  ci:
+    - ./build-coreos.sh
+
+  on_success:
+    - . functions.coreos && release_on_tag
+
+integrations:
+  hub:
+    - integrationName: opsgang_dockerhubreg
+      type: dockerRegistryLogin
+      branches:
+        only:
+          - coreos-*
+
+  notifications:
+    - integrationName: opsgang_slack_delivery
+      type: slack
+      recipients: "#delivery"
+      branches:
+        only:
+          - coreos-*
+      on_success: never
+      on_failure: never
+      on_pull_request: never
