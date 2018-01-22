@@ -97,14 +97,17 @@ gather_release_artefacts() {
     local cfg_dir=$pd/etc/amazon/ssm
     local svc_dir=$pd/etc/systemd/system
     mkdir -p $artefact_dir $bin_dir $cfg_dir $svc_dir
-
+    ls -1a $artefact_dir ; ls -1a $pd
+    
     echo "... copying built binaries " $(ls -1 $d/bin/linux_amd64 | grep -v updater)
     cp -a $d/bin/linux_amd64/{amazon-ssm-agent,ssm-cli,ssm-document-worker} $bin_dir
+    ls -1A $bin_dir/*
 
     echo "... copying default cfgs, systemd service template"
     cp -a $d/bin/amazon-ssm-agent.json.template $cfg_dir/amazon-ssm-agent.json
     cp -a $d/bin/seelog_unix.xml $cfg_dir/seelog.xml
     cp $d/packaging/linux/amazon-ssm-agent.service $svc_dir/amazon-ssm-agent.service.tmpl
+    ls -1A $cfg_dir/* $svc_dir/*
 
     tar czvf $artefact_dir/coreos_binaries.tgz -C $pd
 }
