@@ -18,7 +18,7 @@ modify_src() {
     local f="$bd/agent/appconfig/constants_unix.go" # file to change
 
     echo "1. ... change DefaultDocumentWorker constant to DefaultDocumentWorkerPath"
-    _rename_constant_DefaultDocumentWorker || return 1
+    _rename_constant_DefaultDocumentWorker "$f" || return 1
 
     echo "2. ... inserting new code making DefaultDocumentWorker a var"
     echo "       that can be set at agent run-time"
