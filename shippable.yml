@@ -6,11 +6,11 @@ language: none
 
 branches:
   only:
-    - coreos-*
+    - coreos/*
 
 env:
   global:
-    - GHR="https://github.com/tcnksm/ghr/releases/download/v0.5.4/ghr_v0.5.4_linux_amd64.zip"
+    - 
     - IMG_TAG="ci"
 
 build:
@@ -37,7 +37,7 @@ integrations:
       type: dockerRegistryLogin
       branches:
         only:
-          - coreos-*
+          - coreos/*
 
   notifications:
     - integrationName: opsgang_slack_delivery
@@ -45,7 +45,7 @@ integrations:
       recipients: "#delivery"
       branches:
         only:
-          - coreos-*
+          - coreos/*
       on_success: never
       on_failure: never
       on_pull_request: never

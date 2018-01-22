@@ -1,26 +1,45 @@
 # vim: et sr sw=4 ts=4 smartindent syntax=sh:
 
-# ... get absolute path to repo top-level dir (where our scripts live)
+# golang_version(): used in shippable to docker-pull correct golang image
 golang_version() {
     local bd="${1:-$(pwd)}"
     local f=$bd/vendor/src/golang.org/x/sys/unix/linux/Dockerfile
     if ! grep -Po "ENV\s+GOLANG_VERSION\s+\K([\d\.]+)" $f
     then
-        echo "ERROR: can not determine which version of go to use for Docker build image" >&2
+        echo "ERROR: can not determine go version to use for build image" >&2
         return 1
     fi
 }
 
+# modify_src(): makes src changes needed to set ssm document worker's
+#               path at runtime.
 modify_src() {
     local bd="${1:-$(pwd)}"
     local f="$bd/agent/appconfig/constants_unix.go" # file to change
-    local sf=$bd/
-    local new_code="" single_line=""
 
-    # 1. ... replace existing assignment of DefaultDocumentWorker constant
-    sed -i 's/^\([ \t]*DefaultDocumentWorker\)\( *=.*\)$/\1Path\2 /' $f || return 1
+    echo "1. ... change DefaultDocumentWorker constant to DefaultDocumentWorkerPath"
+    _rename_constant_DefaultDocumentWorker || return 1
 
-    # 2. ... append new definition that let's us use env var at agent run-time
+    echo "2. ... inserting new code making DefaultDocumentWorker a var"
+    echo "       that can be set at agent run-time"
+    _new_code_for_DefaultDocumentWorker "$f" || return 1
+
+    echo "3 ... replace refs to github.com/aws/amazon-ssm-agent with opsgang"
+    echo "      and running gofmt on all code so it'll build correctly"
+    _replace_repo_refs "$bd" || return 1
+
+}
+
+_rename_constant_DefaultDocumentWorker() {
+    [[ ! -w "$1" ]] && echo "ERROR: can't write to $1" >&2 && return 1
+    sed -i 's/^\([ \t]*DefaultDocumentWorker\)\( *=.*\)$/\1Path\2 /' $f
+}
+
+_new_code_for_DefaultDocumentWorker() {
+    [[ ! -w "$1" ]] && echo "ERROR: can't write to $1" >&2 && return 1
+
+    local f="$1" new_code="" single_line=""
+
     new_code='
 package appconfig
 
@@ -29,7 +48,7 @@ import (
     "path/filepath"
 )
 
-// User can specify path to doc worker with env var $SSM_DOCUMENT_WORKER_PATH
+// User can specify path to doc worker with env var$SSM_DOCUMENT_WORKER_PATH
 func set_ssm_document_worker_path() (DocumentWorker string) {
     if _, ok := os.LookupEnv("SSM_DOCUMENT_WORKER_PATH"); ok {
         DocumentWorker, _ = filepath.Abs(os.Getenv("SSM_DOCUMENT_WORKER_PATH"))
@@ -44,46 +63,67 @@ func set_ssm_document_worker_path() (DocumentWorker string) {
 var DefaultDocumentWorker = set_ssm_document_worker_path()
 '
 
-    single_line=$(echo "$new_code" | sed -e 's#$#\\#' | sed -e '#^\\$#,#^#d' | sed -e 's#    #\\\t#g')
-    sed -i "s#^[ \t]package appconfig.*#$(echo -e "$single_line\n")#" $f || return 1
+    single_line=$(
+        echo "$new_code" \
+        | sed -e 's#$#\\#' \
+        | sed -e '#^\\$#,#^#d' \
+        | sed -e 's#    #\\\t#g'
+    )
+    sed -i "s#^[ \t]*package appconfig.*#$(echo -e "$single_line\n")#" $f || return 1
     gofmt -w $f || return 1
 
-    # 3. ... replace refs to github.com/aws/amazon-ssm-agent with opsgang
+}
+
+_replace_repo_refs() {
+    local bd="${1:-$(pwd)}"
+
     local rc=0
-    for file in $(grep -rl 'github.com/aws/amazon-ssm-agent' $bd | grep -v "$(basename $0)"); do
-        echo "modifying $file"
-        sed -i "s#github\.com/aws/amazon-ssm-agent#github.com/opsgang/amazon-ssm-agent#g" $file || rc=1
+    local our_repo="github.com/opsgang/amazon-ssm-agent"
+    local src_repo_regx='github\.com/aws/amazon-ssm-agent'
+
+    for file in $(grep -rl "${src_repo_regx}" $bd | grep -v "$(basename $0)"); do
+        sed -i "s#$src_repo_regx#$our_repo#g" $file || rc=1
         if [[ $file =~ \.go$ ]]; then gofmt -w $file || rc=1 ; fi
     done
 
     return $rc
-
 }
 
+# if we build a coreos/<tag name> branch successfully,
+# create a release for <tag name>.
+#
+# Possibly an "opsgang/fetch"-suitable release as well
+# so we can use version constraints when automating updates
+# of ssm agent. WOULD REQUIRE A SEM-VER TAG AS WELL.
+#
 release_on_tag() {
-    if [[ "$IS_GIT_TAG" == "true" ]] && [[ "$GIT_TAG_NAME" =~ ^[0-9\.]+$ ]]; then
-        echo "... would build a release and upload artefacts" 
-        sudo wget -O /var/tmp/ghr.zip "${GHR}" || return 1
+    if [[ "$BRANCH" =~ ^coreos/[0-9\.]+$ ]]; then
+        echo "... would build a release and upload artefacts"
+        echo "... getting ghr from ${GHR}"
+        get_ghr || return 1
         gather_release_artefacts || return 1
-        echo "shippable vars:" 
-        echo "BRANCH: $BRANCH" 
-        echo "IS_PULL_REQUEST: $IS_PULL_REQUEST" 
-        echo "IS_GIT_TAG : $IS_GIT_TAG" 
-        echo "GIT_TAG_NAME: (only if tag or release event): $GIT_TAG_NAME" 
-        echo "IS_RELEASE: $IS_RELEASE" 
-        echo "RELEASE_NAME: $RELEASE_NAME" 
+        echo "shippable vars:"
+        echo "BRANCH: $BRANCH"
+        echo "TAG FOR RELEASE: $(echo $BRANCH | awk -F/ {'print $NF'})"
+        echo "IS_PULL_REQUEST: $IS_PULL_REQUEST"
     else
-        echo "... not a release" 
+        echo "... not a branch for packaging a release"
         find bin/linux_amd64 -type f
-        echo "shippable vars:" 
-        echo "BRANCH: $BRANCH" 
-        echo "IS_PULL_REQUEST: $IS_PULL_REQUEST" 
-        echo "IS_GIT_TAG : $IS_GIT_TAG" 
-        echo "GIT_TAG_NAME: (only if tag or release event): $GIT_TAG_NAME" 
-        echo "IS_RELEASE: $IS_RELEASE" 
-        echo "RELEASE_NAME: $RELEASE_NAME" 
-    fi 
-    [[ $rc -eq 0 ]]
+        echo "shippable vars:"
+        echo "BRANCH: $BRANCH"
+        echo "IS_PULL_REQUEST: $IS_PULL_REQUEST"
+    fi
+}
+
+get_ghr() {
+    local ghr_url="https://github.com/tcnksm/ghr/releases/download/v0.5.4/ghr_v0.5.4_linux_amd64.zip"
+    sudo wget -O /var/tmp/ghr.zip "${ghr_url}" || return 1
+    sudo apt-get update ; apt-get install -y unzip ; apt-get install -y zip ;
+
+    sudo unzip -d /usr/bin /var/tmp/ghr.zip
+
+    which ghr
+    ghr --help || echo "no help, no worries"
 }
 
 gather_release_artefacts() {
