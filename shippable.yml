@@ -9,27 +9,25 @@ branches:
     - coreos/*
 
 env:
-  global:
-    - 
-    - IMG_TAG="ci"
+  - secure: YxKOQe/MRxJZQbLR5uEbgIKcRwBG7mlqOTP0cdPoOolFt1uJyXs3U5A5W6ufqUtPWPqclJWybmsvMh0iLfWz7QeynVWjIMPDTgKTHjyxFeoTKuYMnrrJDfk1GgKtn0yF7ZgAQlHrFZ2ZpAqfqIXxUuHECxZkNZXDfgP2duTGf8SODFpK1Z0yTGF+mVNOmC8repq9yUPdQG6cjOTBbmPGOp7mHFOLcd9NLPnaYub1iQUTlRRUQM4Lf4Ji1e35r65jaekOHVHQ2zJQSiABmgvsiuZ+9JWBtVkx7DntBQXqWpb3jA+s/62MTXbXTMhG8Yhbx1wTPaXwaoAIFtNJO1tHtQ==
 
 build:
 
   pre_ci:
     - . functions.coreos ; export go_ver=$(golang_version) ;
-      docker pull golang:$go_ver &&
-      docker tag golang:$go_ver opsgang/golang:${IMG_TAG}
+      docker rmi opsgang/golang:ci 2>/dev/null ;
+      docker pull golang:$go_ver && docker tag golang:$go_ver opsgang/golang:ci
 
   pre_ci_boot:
     image_name: opsgang/golang
-    image_tag: ${IMG_TAG}
+    image_tag: ci
     pull: false
 
   ci:
     - ./build-coreos.sh
 
   on_success:
-    - . functions.coreos && release_on_tag
+    - . functions.coreos && release
 
 integrations:
   hub:

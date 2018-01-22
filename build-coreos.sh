@@ -61,8 +61,6 @@ modify_src "$CURRENT_DIR" || exit 1
 
 make build-linux || exit 1
 
-gather_release_artefacts || exit 1
-
 # packaging ...
 
 # On install, need to rewrite systemd service file based on arg passed by user:
