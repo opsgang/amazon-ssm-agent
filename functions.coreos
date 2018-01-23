@@ -1,0 +1,252 @@
+# vim: et sr sw=4 ts=4 smartindent syntax=sh:
+
+# golang_version(): used in shippable to docker-pull correct golang image
+golang_version() {
+    local bd="${1:-$(pwd)}"
+    local f=$bd/vendor/src/golang.org/x/sys/unix/linux/Dockerfile
+    if ! grep -Po "ENV\s+GOLANG_VERSION\s+\K([\d\.]+)" $f
+    then
+        echo "ERROR: can not determine go version to use for build image" >&2
+        return 1
+    fi
+}
+
+git_diff_code() {
+    [[ -z "$2" ]] && echo "ERROR: git_diff_code() needs branch name, artefact dir" >&2 && return 1
+    local branch="$1" rd="$2"
+    local tag=""
+
+    tag="$(tag_from_branch $branch)"
+    git diff -p $tag -- agent > $rd/upstream-release-$tag.diff
+}
+
+# modify_src(): makes src changes needed to set ssm document worker's
+#               path at runtime.
+modify_src() {
+    local bd="${1:-$(pwd)}"
+    local f="$bd/agent/appconfig/constants_unix.go" # file to change
+
+    echo "1. ... change DefaultDocumentWorker constant to DefaultDocumentWorkerPath"
+    _rename_constant_DefaultDocumentWorker "$f" || return 1
+
+    echo "2. ... inserting new code making DefaultDocumentWorker a var"
+    echo "       that can be set at agent run-time"
+    _new_code_for_DefaultDocumentWorker "$f" || return 1
+
+    echo "3 ... replace refs to github.com/aws/amazon-ssm-agent with opsgang"
+    echo "      and running gofmt on all code so it'll build correctly"
+    _replace_repo_refs "$bd" || return 1
+
+}
+
+_rename_constant_DefaultDocumentWorker() {
+    [[ ! -w "$1" ]] && echo "ERROR: can't write to $1" >&2 && return 1
+    sed -i 's/^\([ \t]*DefaultDocumentWorker\)\( *=.*\)$/\1Path\2 /' $f
+    echo "... verifying constant has been renamed."
+    grep -P 'DefaultDocumentWorkerPath\s+=\s+' "$f"
+}
+
+_replace_repo_refs() {
+    local bd="${1:-$(pwd)}"
+
+    local rc=0
+    local our_repo="github.com/opsgang/amazon-ssm-agent"
+    local src_repo_regx='github\.com/aws/amazon-ssm-agent'
+
+    filelist=$(grep -rl "$src_repo_regx" $bd |  grep -P '(\.go|\.sh|makefile)$')
+    for file in $filelist; do
+        sed -i "s#$src_repo_regx#$our_repo#g" $file || rc=1
+        if [[ $file =~ \.go$ ]]; then gofmt -w $file || rc=1 ; fi
+    done
+
+    return $rc
+}
+
+# if we build a coreos/<tag name> branch successfully,
+# create a release for <tag name>.
+#
+# Possibly an "opsgang/fetch"-suitable release as well
+# so we can use version constraints when automating updates
+# of ssm agent. WOULD REQUIRE A SEM-VER TAG AS WELL.
+#
+release() {
+    local rd="$(pwd)/release-artefacts"
+    if [[ "$BRANCH" =~ ^coreos/[0-9\.]+$ ]]; then
+        echo "... will build a release and upload artefacts"
+        echo "... getting ghr from ${GHR}"
+        t=$(tag_from_branch $BRANCH) || return 1
+        get_ghr || return 1
+        prep_release_artefacts "$rd"  || return 1
+        git_diff_code "$BRANCH" "$rd" || return 1
+        gh_release "$BRANCH" "$rd"
+        echo "shippable vars:"
+        echo "BRANCH: $BRANCH"
+        echo "TAG FOR RELEASE: $t"
+        echo "IS_PULL_REQUEST: $IS_PULL_REQUEST"
+    else
+        echo "... not a branch for packaging a release"
+        echo "shippable vars:"
+        echo "BRANCH: $BRANCH"
+        echo "IS_PULL_REQUEST: $IS_PULL_REQUEST"
+    fi
+}
+
+get_ghr() {
+    local zip="/var/tmp/ghr.zip"
+    local ghr_url="https://github.com/tcnksm/ghr/releases/download/v0.5.4/ghr_v0.5.4_linux_amd64.zip"
+    sudo wget -O $zip "${ghr_url}" || return 1
+    sudo apt-get update ; apt-get install -y zip unzip
+
+    sudo unzip -d /usr/bin $zip && sudo rm -f $zip
+
+    [[ -x /usr/bin/ghr ]] # success if installed
+}
+
+tag_from_branch() {
+    [[ -z "$1" ]] && echo "ERROR: tag_from_branch() expects branch name" >&2 && return 1
+    echo "${1##*/}"
+}
+
+prep_release_artefacts() {
+    local artefact_dir="$1"
+    local d="$(pwd)"
+    local pd=$d/coreos
+    local bin_dir=$pd/bin
+    local cfg_dir=$pd/etc/amazon/ssm
+    local svc_dir=$pd/etc/systemd/system
+    local uf=""
+    mkdir -p $artefact_dir $bin_dir $cfg_dir $svc_dir
+
+    echo "... copying built binaries " $(ls -1 $d/bin/linux_amd64 | grep -v updater)
+    cp -a $d/bin/linux_amd64/{amazon-ssm-agent,ssm-cli,ssm-document-worker} $bin_dir
+
+    echo "... copying default cfgs, systemd service template"
+    cp -a $d/bin/amazon-ssm-agent.json.template $cfg_dir/amazon-ssm-agent.json
+    cp -a $d/bin/seelog_unix.xml $cfg_dir/seelog.xml
+
+    echo "... modifying .service unit file, then copying to $svc_dir"
+    uf=$d/packaging/linux/amazon-ssm-agent.service
+    sed -i '/Type=simple/a # REPLACE /the/path/to and /the/dir/containing BEFORE RUNNING!' $uf
+    sed -i '/^# REPLACE /a Environment="SSM_DOCUMENT_WORKER_PATH=/the/path/to/ssm-document-worker"' $uf
+    sed -i 's#/usr/bin/amazon-ssm-agent#/the/path/to/amazon-ssm-agent#g' $uf
+    sed -i 's#\(WorkingDirectory=\).*#\1/the/dir/containing/amazon-ssm-agent#g' $uf
+    cp $uf $svc_dir/amazon-ssm-agent.service
+
+    tar czvf $artefact_dir/binaries.tgz -C $bin_dir .
+    tar czvf $artefact_dir/default-cfgs.tgz -C $pd etc
+}
+
+gh_release() {
+    [[ -z "$GITHUB_TOKEN" ]] && echo "ERROR: GITHUB_TOKEN must be exported" >&2 && return 1
+    [[ -z "$2" ]] && echo "ERROR: gh_release() needs branch name, artefact dir" >&2 && return 1
+
+    local branch="$1" rd="$2"
+    local tag="" gh_org="opsgang" body="" commit="" this_sha="" bt=""
+
+    tag="$(tag_from_branch $branch)"
+
+    if ! commit=$(git rev-list -n1 $tag)
+    then
+        echo "ERROR: could not determine commit of tag $tag"
+        return 1
+    fi
+
+    this_sha=$(git --no-pager rev-parse --short=${GIT_SHA_LEN} --verify HEAD)
+
+    bt="$(_body_txt $tag)" || return 1
+    body="${bt} ... built from branch ${branch}, sha1 ${this_sha}"
+
+    ghr -u $gh_org -c $commit -b "$body" -recreate $tag $rd
+}
+
+_new_code_for_DefaultDocumentWorker() {
+    [[ ! -w "$1" ]] && echo "ERROR: can't write to $1" >&2 && return 1
+
+    local f="$1"
+    local new_code="" single_line=""
+
+    new_code='
+package appconfig
+
+import (
+    "os"
+    "path/filepath"
+)
+
+// User can specify path to doc worker with env var$SSM_DOCUMENT_WORKER_PATH
+func set_ssm_document_worker_path() (DocumentWorker string) {
+    if _, ok := os.LookupEnv("SSM_DOCUMENT_WORKER_PATH"); ok {
+        DocumentWorker, _ = filepath.Abs(os.Getenv("SSM_DOCUMENT_WORKER_PATH"))
+    } else {
+        DocumentWorker = DefaultDocumentWorkerPath
+    }
+    return
+}
+
+// Original code uses constant which must be fixed at compile time.
+// So we use a package global var instead, letting us determine it at run-time.
+var DefaultDocumentWorker = set_ssm_document_worker_path()
+'
+
+    single_line=$(
+        echo "$new_code" \
+        | sed -e 's#$#\\#' \
+        | sed -e '#^\\$#,#^#d' \
+        | sed -e 's#    #\\\t#g'
+    )
+    sed -i "s#^[ \t]*package appconfig.*#$(echo -e "$single_line\n")#" $f || return 1
+    gofmt -w $f || return 1
+
+    # ... verify lines were added, and print to stdout
+    echo "... verifying new code is in place:"
+    echo "START REPLACEMENT CODE-->"
+    cat $f | grep -A500 '^package appconfig' | grep -B500 '^var DefaultDocumentWorker'
+    echo "<--END REPLACEMENT CODE"
+}
+
+_body_txt() {
+    [[ -z "$1" ]] && echo "ERROR: must pass _body_txt() upstream git tag" >&2 && return 1
+    local tag="$1"
+    local url="https://github.com/aws/amazon-ssm-agent/releases/tag/$tag"
+
+    echo -e "
+## UPSTREAM
+
+Release notes for upstream tag $tag are here:
+
+$url
+
+## ARTEFACTS
+
+        binaries.tgz
+        ├── amazon-ssm-agent
+        ├── ssm-cli
+        └── ssm-document-worker
+
+
+        default-cfgs.tgz
+        └── etc
+            ├── amazon
+            │   └── ssm
+            │       ├── amazon-ssm-agent.json # example agent cfg
+            │       └── seelog.xml            # agent logging props
+            └── systemd
+                └── system
+                    └── amazon-ssm-agent.service # example systemd unit
+
+
+        upstream-release-$tag.diff # git diff of the agent code
+                                   # from the upstream release.
+
+**Though intended for CoreOS these binaries should work on any linux amd64**
+
+The big difference between these and the offical aws release is you can
+install the binaries in any location and the agent will still run.
+
+Specify the path to the ssm-document-worker **at run-time** by setting
+\$SSM_DOCUMENT_WORKER_PATH in the *ssm-agent's* environment.
+
+See the example .service file in default-cfgs.tgz.
+\n"
+}
+
