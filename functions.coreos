@@ -126,13 +126,9 @@ gh_release() {
 
     this_sha=$(git --no-pager rev-parse --short=${GIT_SHA_LEN} --verify HEAD)
 
-    body="$(_body_txt)... built from branch ${branch}, sha1 ${this_sha}"
+    body="$(_body_txt) ... built with branch ${branch}, sha1 ${this_sha}"
     
-    echo "... would execute:"
-    echo "ghr -u $gh_org -c $commit -b \"blah\" -recreate $tag $rd"
-
-    echo -e "with body:\n$body\n"
-    #ghr -u $gh_org -c $commit -b "$body" -recreate $tag $rd
+    ghr -u $gh_org -c $commit -b "$body" -recreate $tag $rd
 }
 
 _new_code_for_DefaultDocumentWorker() {
@@ -179,7 +175,7 @@ var DefaultDocumentWorker = set_ssm_document_worker_path()
 }
 
 _body_txt() {
-    echo '
+    echo -e '
 **These binaries should actually work on any linux amd64**
 
 They provide the user the aws ssm agent, document-worker and cli.
@@ -193,8 +189,7 @@ ssm-document-worker to the current hardcoded path in the aws releases.
 
 Specify the path to the ssm-document-worker **at run-time** by setting
 `$SSM_DOCUMENT_WORKER_PATH` in the ssm-agent environment
-
-e.g. in the systemd service file.
-'
+    e.g. in the systemd service file.
+\n'
 }
 
