@@ -44,6 +44,6 @@ integrations:
       branches:
         only:
           - coreos/*
-      on_success: never
+      on_success: always
       on_failure: never
       on_pull_request: never
