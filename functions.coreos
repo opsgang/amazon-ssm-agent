@@ -17,7 +17,7 @@ git_diff_code() {
     local tag=""
 
     tag="${branch##*/}"
-    git diff -p $tag -- $bd/agent > $rd/upstream-built-code-$tag.diff
+    git diff -p $tag -- agent > $rd/upstream-built-code-$tag.diff
 }
 
 # modify_src(): makes src changes needed to set ssm document worker's
@@ -122,7 +122,7 @@ prep_release_artefacts() {
     sed -i '/Type=simple/a # REPLACE /the/path/to and /the/dir/containing BEFORE RUNNING!' $uf
     sed -i '/^# REPLACE /a Environment="SSM_DOCUMENT_WORKER_PATH=/the/path/to/ssm-document-worker"' $uf
     sed -i 's#/usr/bin/amazon-ssm-agent#/the/path/to/amazon-ssm-agent#g' $uf
-    sed -i 's#\(WorkingDirectory=\).*#\1#/the/dir/containing/amazon-ssm-agent#g' $uf
+    sed -i 's#\(WorkingDirectory=\).*#\1/the/dir/containing/amazon-ssm-agent#g' $uf
     cp $uf $svc_dir/amazon-ssm-agent.service
 
     tar czvf $artefact_dir/binaries.tgz -C $bin_dir .
