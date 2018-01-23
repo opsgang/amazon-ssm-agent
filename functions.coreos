@@ -16,8 +16,8 @@ git_diff_code() {
     local branch="$1" rd="$2"
     local tag=""
 
-    tag="${branch##*/}"
-    git diff -p $tag -- agent > $rd/upstream-built-code-$tag.diff
+    tag="$(tag_from_branch $branch)"
+    git diff -p $tag -- agent > $rd/upstream-release-$tag.diff
 }
 
 # modify_src(): makes src changes needed to set ssm document worker's
@@ -72,15 +72,16 @@ _replace_repo_refs() {
 release() {
     local rd="$(pwd)/release-artefacts"
     if [[ "$BRANCH" =~ ^coreos/[0-9\.]+$ ]]; then
-        echo "... would build a release and upload artefacts"
+        echo "... will build a release and upload artefacts"
         echo "... getting ghr from ${GHR}"
+        t=$(tag_from_branch $BRANCH) || return 1
         get_ghr || return 1
         prep_release_artefacts "$rd"  || return 1
         git_diff_code "$BRANCH" "$rd" || return 1
         gh_release "$BRANCH" "$rd"
         echo "shippable vars:"
         echo "BRANCH: $BRANCH"
-        echo "TAG FOR RELEASE: $(echo $BRANCH | awk -F/ {'print $NF'})"
+        echo "TAG FOR RELEASE: $t"
         echo "IS_PULL_REQUEST: $IS_PULL_REQUEST"
     else
         echo "... not a branch for packaging a release"
@@ -91,13 +92,19 @@ release() {
 }
 
 get_ghr() {
+    local zip="/var/tmp/ghr.zip"
     local ghr_url="https://github.com/tcnksm/ghr/releases/download/v0.5.4/ghr_v0.5.4_linux_amd64.zip"
-    sudo wget -O /var/tmp/ghr.zip "${ghr_url}" || return 1
+    sudo wget -O $zip "${ghr_url}" || return 1
     sudo apt-get update ; apt-get install -y zip unzip
 
-    sudo unzip -d /usr/bin /var/tmp/ghr.zip
+    sudo unzip -d /usr/bin $zip && sudo rm -f $zip
 
     [[ -x /usr/bin/ghr ]] # success if installed
+}
+
+tag_from_branch() {
+    [[ -z "$1" ]] && echo "ERROR: tag_from_branch() expects branch name" >&2 && return 1
+    echo "${1##*/}"
 }
 
 prep_release_artefacts() {
@@ -109,7 +116,7 @@ prep_release_artefacts() {
     local svc_dir=$pd/etc/systemd/system
     local uf=""
     mkdir -p $artefact_dir $bin_dir $cfg_dir $svc_dir
-    
+
     echo "... copying built binaries " $(ls -1 $d/bin/linux_amd64 | grep -v updater)
     cp -a $d/bin/linux_amd64/{amazon-ssm-agent,ssm-cli,ssm-document-worker} $bin_dir
 
@@ -134,9 +141,9 @@ gh_release() {
     [[ -z "$2" ]] && echo "ERROR: gh_release() needs branch name, artefact dir" >&2 && return 1
 
     local branch="$1" rd="$2"
-    local tag="" gh_org="opsgang" body="" commit=""
+    local tag="" gh_org="opsgang" body="" commit="" this_sha="" bt=""
 
-    tag="${branch##*/}"
+    tag="$(tag_from_branch $branch)"
 
     if ! commit=$(git rev-list -n1 $tag)
     then
@@ -146,8 +153,9 @@ gh_release() {
 
     this_sha=$(git --no-pager rev-parse --short=${GIT_SHA_LEN} --verify HEAD)
 
-    body="$(_body_txt) ... built with branch ${branch}, sha1 ${this_sha}"
-    
+    bt="$(_body_txt $tag)" || return 1
+    body="${bt} ... built from branch ${branch}, sha1 ${this_sha}"
+
     ghr -u $gh_org -c $commit -b "$body" -recreate $tag $rd
 }
 
@@ -190,30 +198,55 @@ var DefaultDocumentWorker = set_ssm_document_worker_path()
     gofmt -w $f || return 1
 
     # ... verify lines were added, and print to stdout
-    echo "... verifying new code is there:"
+    echo "... verifying new code is in place:"
+    echo "START REPLACEMENT CODE-->"
     cat $f | grep -A500 '^package appconfig' | grep -B500 '^var DefaultDocumentWorker'
+    echo "<--END REPLACEMENT CODE"
 }
 
 _body_txt() {
-    echo -e '
-**These binaries should actually work on any linux amd64**
+    [[ -z "$1" ]] && echo "ERROR: must pass _body_txt() upstream git tag" >&2 && return 1
+    local tag="$1"
+    local url="https://github.com/aws/amazon-ssm-agent/releases/tag/$tag"
 
-They provide the user the aws ssm agent, document-worker and cli.
+    echo -e "
+## UPSTREAM
+
+Release notes for upstream tag $tag are here:
+
+$url
+
+## ARTEFACTS
+
+        binaries.tgz
+        ├── amazon-ssm-agent
+        ├── ssm-cli
+        └── ssm-document-worker
+
+
+        default-cfgs.tgz
+        └── etc
+            ├── amazon
+            │   └── ssm
+            │       ├── amazon-ssm-agent.json # example agent cfg
+            │       └── seelog.xml            # agent logging props
+            └── systemd
+                └── system
+                    └── amazon-ssm-agent.service # example systemd unit
+
+
+        upstream-release-$tag.diff # git diff of the agent code
+                                   # from the upstream release.
+
+**Though intended for CoreOS these binaries should work on any linux amd64**
 
 The big difference between these and the offical aws release is you can
-install the binaries in any location and they will still work.
-
-This allows ssm to run on CoreOS, on which it is not possible to deploy the
-ssm-document-worker to the current hardcoded path in the aws releases.
-(/usr is mounted as read-only on CoreOS)
+install the binaries in any location and the agent will still run.
 
 Specify the path to the ssm-document-worker **at run-time** by setting
-`$SSM_DOCUMENT_WORKER_PATH` in the ssm-agent environment.
+\$SSM_DOCUMENT_WORKER_PATH in the *ssm-agent's* environment.
 
-binaries.tgz:     contain ssm-cli, ssm agent and document worker (no subdir in archive)
-
-default-cfgs.tgz: default /etc/amazon/ssm/{amazon-ssm-agent.json,seelog.xml}
-                  and example /etc/systemd/system/amazon-ssm-agent.service
-\n'
+See the example .service file in default-cfgs.tgz.
+\n"
 }
 
