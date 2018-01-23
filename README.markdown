@@ -28,8 +28,11 @@ in the code for the agent.
 These opsgang builds modify the src to allow the agent to get the path from
 an env var at run-time instead.
 
-Basically, I change a `constant` to a
-`var` in the least intrusive, and utterly inelegant way possible at build time.
+The only alteration to the upstream src happens at build-time and is to allow the user
+to define the location of the document worker at run-time.
+
+Basically, the build scripts change a `constant` to a `var` in the least intrusive, and utterly
+inelegant way possible at build time.
 
 ## WHY THIS FORK?
 
@@ -42,17 +45,50 @@ The motivation for this came about because:
     I use CoreOS. A lot.
     
 * The Amazon contributors [do not have plans][3] to allow the path to the document worker to be
-    configured at run-time.
+    configured at run-time. Otherwise I'd just have submitted a PR ...
 
 * Levent Yalcin wrote [a great piece][4] about running AWS SSM on CoreOS.
     Sadly his excellent tutorial on building a CoreOS-compatible fell foul of the hard-coded path
     to the ssm document worker. Hopefully this solution helps those who find his article via
     their favourite search engine.
     
+## WHY NOT COMMIT THE MODIFIED CODE?
+
+I don't want to deal with merge conflicts every time I sync with the upstream.
+It is far easier to maintain hackery in _new_ files which don't exist in the upstream.
+
+However for the curious or cautious, a diff is attached to each release showing any variations in the
+src code from that of the upstream.
+
+These are the only changes you should see:
+
+* All occurrences in code, of /aws/amazon-ssm-agent are replaced with /opsgang/amazon-ssm-agent
+
+* The constant `DefaultDocumentWorker` is turned in to a var
+
 ## RELEASES
 
-The shippable build process will add successfully built binaries to the official
-release tag the upstream src is from.
+The shippable build process will on success, create a git release in this fork,adding the built binaries
+to the appropriate tag. (The tags used are the same as those from the upstream).
 
-The only alteration to src is to allow the user to define the location
-of the document worker at run-time.
+The release artefacts:
+
+        binaries.tgz
+        ├── amazon-ssm-agent
+        ├── ssm-cli
+        └── ssm-document-worker
+
+
+        default-cfgs.tgz
+        └── etc
+            ├── amazon
+            │   └── ssm
+            │       ├── amazon-ssm-agent.json # example agent cfg
+            │       └── seelog.xml            # agent logging props
+            └── systemd
+                └── system
+                    └── amazon-ssm-agent.service # example systemd unit
+
+
+        upstream-release-$tag.diff # between this build's code and upstream's code.
+

@@ -210,11 +210,15 @@ _body_txt() {
     local url="https://github.com/aws/amazon-ssm-agent/releases/tag/$tag"
 
     echo -e "
-## UPSTREAM
+**Though intended for CoreOS these binaries should work on any linux amd64.**
 
-Release notes for upstream tag $tag are here:
+Unlike the amazon releases, these binaries can be installed anywhere on
+an instance's filesystem and the agent will still run.
 
-$url
+Specify the path to the ssm-document-worker **at run-time** by setting
+\$SSM_DOCUMENT_WORKER_PATH in the *ssm-agent's* environment.
+
+See the .service file in default-cfgs.tgz for a systemd example.
 
 ## ARTEFACTS
 
@@ -235,18 +239,14 @@ $url
                     └── amazon-ssm-agent.service # example systemd unit
 
 
-        upstream-release-$tag.diff # git diff of the agent code
-                                   # from the upstream release.
+        upstream-release-$tag.diff # between this build's code and upstream's code.
 
-**Though intended for CoreOS these binaries should work on any linux amd64**
+## UPSTREAM
 
-The big difference between these and the offical aws release is you can
-install the binaries in any location and the agent will still run.
+Release notes for upstream tag $tag are here:
 
-Specify the path to the ssm-document-worker **at run-time** by setting
-\$SSM_DOCUMENT_WORKER_PATH in the *ssm-agent's* environment.
+$url
 
-See the example .service file in default-cfgs.tgz.
 \n"
 }
 
