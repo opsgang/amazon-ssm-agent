@@ -141,7 +141,7 @@ gh_release() {
     [[ -z "$2" ]] && echo "ERROR: gh_release() needs branch name, artefact dir" >&2 && return 1
 
     local branch="$1" rd="$2"
-    local tag="" gh_org="opsgang" body="" commit="" this_sha="" bt=""
+    local tag="" gh_org="opsgang" body="" commit=""
 
     tag="$(tag_from_branch $branch)"
 
@@ -151,10 +151,7 @@ gh_release() {
         return 1
     fi
 
-    this_sha=$(git --no-pager rev-parse --short=${GIT_SHA_LEN} --verify HEAD)
-
-    bt="$(_body_txt $tag)" || return 1
-    body="${bt} ... built from branch ${branch}, sha1 ${this_sha}"
+    body="$(_body_txt $tag)" || return 1
 
     ghr -u $gh_org -c $commit -b "$body" -recreate $tag $rd
 }
@@ -209,7 +206,9 @@ _body_txt() {
     local tag="$1"
     local url="https://github.com/aws/amazon-ssm-agent/releases/tag/$tag"
 
-    echo -e "
+    echo "
+_Built from sha1 $(git --no-pager rev-parse --short=8 --verify HEAD)_
+
 **Though intended for CoreOS these binaries should work on any linux amd64.**
 
 Unlike the amazon releases, these binaries can be installed anywhere on
@@ -246,7 +245,7 @@ See the .service file in default-cfgs.tgz for a systemd example.
 Release notes for upstream tag $tag are here:
 
 $url
+"
 
-\n"
 }
 
