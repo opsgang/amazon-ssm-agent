@@ -22,10 +22,12 @@ git merge $_tag
 
 # now verify that no new /usr/bin paths have been introduced
 # and that DefaultDocumentWorker is still being used to init
-# the process
+# the process. Also, check that the code injection will work
+# based on the existing regex
 e.g.
     grep -rl /usr/bin .
     grep -rl DefaultDocumentWorker .
+    vim agent/appconfig/constants_unix.go
 
 # ONCE YOU ARE HAPPY WITH ANY CHANGES
 git push -u origin/coreos/$_tag ; git push --tags
