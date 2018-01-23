@@ -163,8 +163,6 @@ _new_code_for_DefaultDocumentWorker() {
     local new_code="" single_line=""
 
     new_code='
-package appconfig
-
 import (
     "os"
     "path/filepath"
@@ -191,13 +189,13 @@ var DefaultDocumentWorker = set_ssm_document_worker_path()
         | sed -e '#^\\$#,#^#d' \
         | sed -e 's#    #\\\t#g'
     )
-    sed -i "s#^[ \t]*package appconfig.*#$(echo -e "$single_line\n")#" $f || return 1
+    sed -i "s#^[ \t]*import .*#$(echo -e "$single_line\n")#" $f || return 1
     gofmt -w $f || return 1
 
     # ... verify lines were added, and print to stdout
     echo "... verifying new code is in place:"
     echo "START REPLACEMENT CODE-->"
-    cat $f | grep -A500 '^package appconfig' | grep -B500 '^var DefaultDocumentWorker'
+    cat $f | grep -A500 '^import ' | grep -B500 '^var DefaultDocumentWorker'
     echo "<--END REPLACEMENT CODE"
 }
 
