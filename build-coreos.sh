@@ -26,15 +26,4 @@
 CURRENT_DIR=$(pwd)
 modify_src "$CURRENT_DIR" || exit 1
 
-generate_diff "$CURRENT_DIR"
-
-make quick-test || exit 1
 make build-linux || exit 1
-
-# packaging ...
-
-# On install, need to rewrite systemd service file based on arg passed by user:
-# add line: Environment="SSM_DOCUMENT_WORKER_PATH=<USER_PATH>/ssm-document-worker"
-# modify  : WorkingDirectory=<SSM_BIN_DIR>
-# modify  : ExecStart=<SSM_BIN_DIR>/amazon-ssm-agent
-

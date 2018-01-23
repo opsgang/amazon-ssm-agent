@@ -11,6 +11,15 @@ golang_version() {
     fi
 }
 
+git_diff_code() {
+    [[ -z "$2" ]] && echo "ERROR: git_diff_code() needs branch name, artefact dir" >&2 && return 1
+    local branch="$1" rd="$2"
+    local tag=""
+
+    tag="${branch##*/}"
+    git diff -p $tag -- $bd/agent > $rd/upstream-built-code-$tag.diff
+}
+
 # modify_src(): makes src changes needed to set ssm document worker's
 #               path at runtime.
 modify_src() {
@@ -66,7 +75,8 @@ release() {
         echo "... would build a release and upload artefacts"
         echo "... getting ghr from ${GHR}"
         get_ghr || return 1
-        gather_release_artefacts "$rd"  || return 1
+        prep_release_artefacts "$rd"  || return 1
+        git_diff_code "$BRANCH" "$rd" || return 1
         gh_release "$BRANCH" "$rd"
         echo "shippable vars:"
         echo "BRANCH: $BRANCH"
@@ -90,13 +100,14 @@ get_ghr() {
     [[ -x /usr/bin/ghr ]] # success if installed
 }
 
-gather_release_artefacts() {
+prep_release_artefacts() {
     local artefact_dir="$1"
     local d="$(pwd)"
     local pd=$d/coreos
-    local bin_dir=$pd/_bin
+    local bin_dir=$pd/bin
     local cfg_dir=$pd/etc/amazon/ssm
     local svc_dir=$pd/etc/systemd/system
+    local uf=""
     mkdir -p $artefact_dir $bin_dir $cfg_dir $svc_dir
     
     echo "... copying built binaries " $(ls -1 $d/bin/linux_amd64 | grep -v updater)
@@ -105,9 +116,17 @@ gather_release_artefacts() {
     echo "... copying default cfgs, systemd service template"
     cp -a $d/bin/amazon-ssm-agent.json.template $cfg_dir/amazon-ssm-agent.json
     cp -a $d/bin/seelog_unix.xml $cfg_dir/seelog.xml
-    cp $d/packaging/linux/amazon-ssm-agent.service $svc_dir/amazon-ssm-agent.service.tmpl
 
-    tar czvf $artefact_dir/coreos_binaries.tgz -C $pd .
+    echo "... modifying .service unit file, then copying to $svc_dir"
+    uf=$d/packaging/linux/amazon-ssm-agent.service
+    sed -i '/Type=simple/a # REPLACE /the/path/to and /the/dir/containing BEFORE RUNNING!' $uf
+    sed -i '/^# REPLACE /a Environment="SSM_DOCUMENT_WORKER_PATH=/the/path/to/ssm-document-worker"' $uf
+    sed -i 's#/usr/bin/amazon-ssm-agent#/the/path/to/amazon-ssm-agent#g' $uf
+    sed -i 's#\(WorkingDirectory=\).*#\1#/the/dir/containing/amazon-ssm-agent#g' $uf
+    cp $uf $svc_dir/amazon-ssm-agent.service
+
+    tar czvf $artefact_dir/binaries.tgz -C $bin_dir .
+    tar czvf $artefact_dir/default-cfgs.tgz -C $pd etc
 }
 
 gh_release() {
@@ -189,8 +208,12 @@ ssm-document-worker to the current hardcoded path in the aws releases.
 (/usr is mounted as read-only on CoreOS)
 
 Specify the path to the ssm-document-worker **at run-time** by setting
-`$SSM_DOCUMENT_WORKER_PATH` in the ssm-agent environment
-    e.g. in the systemd service file.
+`$SSM_DOCUMENT_WORKER_PATH` in the ssm-agent environment.
+
+binaries.tgz:     contain ssm-cli, ssm agent and document worker (no subdir in archive)
+
+default-cfgs.tgz: default /etc/amazon/ssm/{amazon-ssm-agent.json,seelog.xml}
+                  and example /etc/systemd/system/amazon-ssm-agent.service
 \n'
 }
 
