@@ -44,7 +44,8 @@ _replace_repo_refs() {
     local our_repo="github.com/opsgang/amazon-ssm-agent"
     local src_repo_regx='github\.com/aws/amazon-ssm-agent'
 
-    for file in $(grep -rl "${src_repo_regx}" $bd | grep -v "$(basename $0)"); do
+    filelist=$(grep -rl "$src_repo_regx" $bd |  grep -P '(\.go|\.sh|makefile)$')
+    for file in $filelist; do
         sed -i "s#$src_repo_regx#$our_repo#g" $file || rc=1
         if [[ $file =~ \.go$ ]]; then gofmt -w $file || rc=1 ; fi
     done
