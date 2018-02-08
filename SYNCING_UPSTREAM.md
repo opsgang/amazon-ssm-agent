@@ -30,7 +30,7 @@ e.g.
     vim agent/appconfig/constants_unix.go
 
 # ONCE YOU ARE HAPPY WITH ANY CHANGES
-git push -u origin/coreos/$_tag ; git push --tags
+git push -u origin coreos/$_tag ; git push --tags
 ```
 
 ```bash
@@ -39,5 +39,5 @@ _tag=x.y.z.0
 git checkout -b coreos/$_tag
 git checkout released ; git pull --prune
 git merge coreos/$_tag
-git push -u origin/released
+git push -u origin released
 ```
