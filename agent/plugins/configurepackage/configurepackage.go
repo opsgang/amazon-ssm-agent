@@ -19,8 +19,6 @@ import (
 	"errors"
 	"fmt"
 
-	"time"
-
 	"github.com/aws/amazon-ssm-agent/agent/appconfig"
 	"github.com/aws/amazon-ssm-agent/agent/context"
 	"github.com/aws/amazon-ssm-agent/agent/contracts"
@@ -89,7 +87,7 @@ func prepareConfigurePackage(
 		// get version information
 		trace := tracer.BeginSection("determine version to install")
 		installedVersion, installState = getVersionToInstall(tracer, repository, packageArn)
-		trace.AppendInfof("installed: %v in state %v, to install: %v", installedVersion, installState, version).End()
+		trace.AppendDebugf("installed: %v in state %v, to install: %v", installedVersion, installState, version).End()
 
 		// ensure manifest file and package
 		var err error
@@ -107,7 +105,7 @@ func prepareConfigurePackage(
 		// * If the version exists, but the local manifest is different, reinstall the package
 		// * Return success if the package is already installed
 		trace = tracer.BeginSection("ensure old package is locally available")
-		if installedVersion != "" && (installedVersion != version || !isSameAsCache) {
+		if !(installedVersion == "" || installState == localpackages.None) && (installedVersion != version || !isSameAsCache) {
 			uninst, err = ensurePackage(tracer, repository, packageService, packageArn, installedVersion, isSameAsCache, config)
 			if err != nil {
 				trace.WithError(err)
@@ -127,14 +125,16 @@ func prepareConfigurePackage(
 		}
 
 		//return success if the version is already uninstalled
-		if installedVersion == "" || version != installedVersion {
-			trace.AppendInfof("version: %v already uninstalled", version).End()
+		//return success if the installState is None or Uninstalled
+		if (installedVersion == "" || version != installedVersion) ||
+			(installState == localpackages.None || installState == localpackages.Uninstalled) {
+			trace.AppendDebugf("version: %v is not installed", version).End()
 			installState = localpackages.None
 			output.MarkAsSucceeded()
 			return
 		}
 
-		trace.AppendInfof("installed: %v in state: %v", installedVersion, installState).End()
+		trace.AppendDebugf("installed: %v in state: %v", installedVersion, installState).End()
 
 		// ensure manifest file and package
 		trace = tracer.BeginSection("ensure package is locally available")
@@ -170,8 +170,8 @@ func ensurePackage(
 	currentState, currentVersion := repository.GetInstallState(tracer, packageName)
 	if err := repository.ValidatePackage(tracer, packageName, version); err != nil ||
 		(currentVersion == version && (currentState == localpackages.Failed || !isSameAsCache)) {
-		pkgTrace.AppendInfof("Current %v Target %v State %v", currentVersion, version, currentState)
-		pkgTrace.AppendInfof("Refreshing package content for %v %v", packageName, version)
+		pkgTrace.AppendDebugf("Current %v Target %v State %v", currentVersion, version, currentState).End()
+		pkgTrace.AppendDebugf("Refreshing package content for %v %v", packageName, version).End()
 		if err = repository.RefreshPackage(tracer, packageName, version, packageService.PackageServiceName(), buildDownloadDelegate(tracer, packageService, packageName, version)); err != nil {
 			pkgTrace.WithError(err).End()
 			return nil, err
@@ -323,15 +323,13 @@ func checkAlreadyInstalled(
 					if uninst != nil {
 						cleanupAfterUninstall(tracer, repository, uninst, output)
 					}
-					// TODO: report result
 					output.MarkAsSucceeded()
 				} else if installState == localpackages.RollbackInstall {
 					validateTrace.AppendInfof("Failed to install %v %v, successfully rolled back to %v %v", uninst.PackageName(), uninst.Version(), inst.PackageName(), inst.Version())
 					cleanupAfterUninstall(tracer, repository, inst, output)
-					// TODO: report result
 					output.MarkAsFailed(nil, nil)
 				} else {
-					validateTrace.AppendInfof("%v %v is already installed", packageName, targetVersion)
+					validateTrace.AppendDebugf("%v %v is already installed", packageName, targetVersion).End()
 					output.MarkAsSucceeded()
 				}
 				if installState != localpackages.Installed && installState != localpackages.Unknown {
@@ -375,7 +373,6 @@ func (p *Plugin) Execute(context context.T, config contracts.Configuration, canc
 func (p *Plugin) execute(context context.T, config contracts.Configuration, cancelFlag task.CancelFlag, output iohandler.IOHandler) {
 	log := context.Log()
 	log.Info("RunCommand started with configuration ", config)
-	startTime := time.Now().UnixNano()
 	tracer := trace.NewTracer(log)
 	defer tracer.BeginSection("configurePackage").End()
 
@@ -417,7 +414,9 @@ func (p *Plugin) execute(context context.T, config contracts.Configuration, canc
 				isSameAsCache,
 				&out)
 			log.Debugf("HasInst %v, HasUninst %v, InstallState %v, PackageArn %v, InstalledVersion %v", inst != nil, uninst != nil, installState, packageArn, installedVersion)
-			if out.GetStatus() != contracts.ResultStatusFailed {
+
+			//if the status is already decided as failed or succeeded, do not execute anything
+			if out.GetStatus() != contracts.ResultStatusFailed && out.GetStatus() != contracts.ResultStatusSuccess {
 				alreadyInstalled := checkAlreadyInstalled(tracer, context, p.localRepository, installedVersion, installState, inst, uninst, &out)
 				// if already failed or already installed and valid, do not execute install
 				// if it is already installed and the cache is the same, do not execute install
@@ -431,31 +430,48 @@ func (p *Plugin) execute(context context.T, config contracts.Configuration, canc
 						uninst,
 						installState,
 						&out)
-					if !out.GetStatus().IsReboot() {
-						version := manifestVersion
-						if input.Action == InstallAction {
-							version = inst.Version()
-						} else if input.Action == UninstallAction {
-							version = uninst.Version()
-						}
+				}
+			}
 
-						err := packageService.ReportResult(tracer, packageservice.PackageResult{
-							Exitcode:               int64(out.GetExitCode()),
-							Operation:              input.Action,
-							PackageName:            input.Name,
-							PreviousPackageVersion: installedVersion,
-							Timing:                 startTime,
-							Version:                version,
-							Trace:                  packageservice.ConvertToPackageServiceTrace(tracer.Traces()),
-						})
-						if err != nil {
-							out.AppendErrorf(log, "Error reporting results: %v", err.Error())
-						}
+			if err := p.localRepository.LoadTraces(tracer, packageArn); err != nil {
+				log.Errorf("Error loading prior traces: %v", err.Error())
+			}
+			if out.GetStatus().IsReboot() {
+				err := p.localRepository.PersistTraces(tracer, packageArn)
+				if err != nil {
+					log.Errorf("Error persisting traces: %v", err.Error())
+				}
+			} else {
+				version := manifestVersion
+				if input.Action == InstallAction {
+					version = inst.Version()
+				} else if input.Action == UninstallAction {
+					version = uninst.Version()
+				}
+
+				startTime := tracer.Traces()[0].Start
+				for _, trace := range tracer.Traces() {
+					if trace.Start < startTime {
+						startTime = trace.Start
 					}
+				}
+
+				err := packageService.ReportResult(tracer, packageservice.PackageResult{
+					Exitcode:               int64(out.GetExitCode()),
+					Operation:              input.Action,
+					PackageName:            input.Name,
+					PreviousPackageVersion: installedVersion,
+					Timing:                 startTime,
+					Version:                version,
+					Trace:                  packageservice.ConvertToPackageServiceTrace(tracer.Traces()),
+				})
+				if err != nil {
+					out.AppendErrorf(log, "Error reporting results: %v", err.Error())
 				}
 			}
 		}
 	}
+
 	output.SetExitCode(out.GetExitCode())
 	output.SetStatus(out.GetStatus())
 
@@ -486,7 +502,7 @@ func getPackageArnAndVersion(
 	}
 
 	packageArn, version, isSameAsCache, err := packageService.DownloadManifest(tracer, input.Name, version)
-	trace.AppendInfof("got manifest for package %v version %v isSameAsCache %v", packageArn, version, isSameAsCache)
+	trace.AppendDebugf("got manifest for package %v version %v isSameAsCache %v", packageArn, version, isSameAsCache)
 
 	if err != nil {
 		trace.WithError(err).End()

@@ -45,7 +45,7 @@ func (po *PluginOutputTrace) MarkAsFailed(log log.T, err error) {
 	po.status = contracts.ResultStatusFailed
 
 	if err != nil {
-		po.Tracer.CurrentTrace().Error = err
+		po.Tracer.CurrentTrace().Error = err.Error()
 	}
 }
 
@@ -95,4 +95,12 @@ func (po *PluginOutputTrace) AppendError(log log.T, message string) {
 
 func (po *PluginOutputTrace) AppendErrorf(log log.T, format string, params ...interface{}) {
 	po.Tracer.CurrentTrace().AppendErrorf(format, params...)
+}
+
+func (po *PluginOutputTrace) AppendDebug(log log.T, message string) {
+	po.Tracer.CurrentTrace().AppendDebug(message)
+}
+
+func (po *PluginOutputTrace) AppendDebugf(log log.T, format string, params ...interface{}) {
+	po.Tracer.CurrentTrace().AppendDebugf(format, params...)
 }
