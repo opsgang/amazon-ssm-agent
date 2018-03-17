@@ -521,26 +521,63 @@ func TestGetInventoryDataComplex(t *testing.T) {
 		State:    PackageInstallState{Name: "SsmTest", Version: "0.0.1", State: Installed, Time: installTime},
 		Manifest: PackageManifest{Name: "SsmTest", Version: "0.0.1", Platform: "windows", Architecture: "386", AppName: "SSM Test Package", AppPublisher: "Test"},
 	}
-	testData2 := InventoryTestData{
+	testData2 := InventoryTestData{ // no manifest defined
 		Name:    "Foo",
 		Version: "1.0.1",
 		State:   PackageInstallState{Name: "Foo", Version: "1.0.1", State: Installing, Time: installTime},
 	}
-	testData3 := InventoryTestData{
+	testData3 := InventoryTestData{ // only name specified in the manifest
 		Name:     "SsmTest2",
 		Version:  "0.1.2",
-		State:    PackageInstallState{Name: "SsmTest", Version: "0.1.2", State: Installed, Time: installTime},
+		State:    PackageInstallState{Name: "SsmTest2", Version: "0.1.2", State: Installed, Time: installTime},
 		Manifest: PackageManifest{Name: "SsmTest", Version: "0.1.2", Platform: "windows", Architecture: "386"},
 	}
+	testData4 := InventoryTestData{ // invalid manifest - no name or appname specified
+		Name:     "SsmTest3",
+		Version:  "0.1.3",
+		State:    PackageInstallState{Name: "SsmTest3", Version: "0.1.3", State: Installed, Time: installTime},
+		Manifest: PackageManifest{Version: "0.1.3", Platform: "windows", Architecture: "386"},
+	}
+
+	expectedInventory := []model.ApplicationData{
+		{
+			Name:          "SSM Test Package",
+			Version:       "0.0.1",
+			Architecture:  "i386",
+			Publisher:     "Test",
+			InstalledTime: installTime.Format(time.RFC3339),
+		},
+		{
+			Name:          "SsmTest",
+			Version:       "0.1.2",
+			Architecture:  "i386",
+			CompType:      model.AWSComponent,
+			InstalledTime: installTime.Format(time.RFC3339),
+		},
+	}
+
+	testInventory(t, []InventoryTestData{testData1, testData2, testData3, testData4}, expectedInventory)
+}
+
+func TestGetInventoryBirdwatcherPackageData(t *testing.T) {
+	installTime := time.Now()
+	testData := []InventoryTestData{
+		{ // manifest defined with only the Name
+			Name:     "_arnawsssmpackagetestbirdwatcherpackagename_30_MDYHMZE2S4YZLHSTLR4EQ6BT4ZSCW4BDXEV5C2SMMOVWDQZKUHPQ====",
+			Version:  "0.0.1",
+			State:    PackageInstallState{Name: "arn:aws:ssm:::package/TestBirdwatcherPackageName", Version: "0.0.1", State: Installed, Time: installTime},
+			Manifest: PackageManifest{Name: "TestBirdwatcherPackageName", Version: "0.0.1", Platform: "windows", Architecture: "386", AppPublisher: "Test"},
+		},
+	}
 	expectedInventory := model.ApplicationData{
-		Name:          "SSM Test Package",
+		Name:          "TestBirdwatcherPackageName",
 		Version:       "0.0.1",
 		Architecture:  "i386",
 		Publisher:     "Test",
 		InstalledTime: installTime.Format(time.RFC3339),
 	}
 
-	testInventory(t, []InventoryTestData{testData1, testData2, testData3}, []model.ApplicationData{expectedInventory})
+	testInventory(t, testData, []model.ApplicationData{expectedInventory})
 }
 
 func TestGetInventoryError(t *testing.T) {
@@ -571,9 +608,9 @@ func testInventory(t *testing.T, testData []InventoryTestData, expected []model.
 		mockFileSys.On("ReadFile", path.Join(testRepoRoot, testItem.Name, "installstate")).Return([]byte(stateContent), nil).Once()
 
 		if (testItem.Manifest != PackageManifest{}) {
-			mockFileSys.On("Exists", path.Join(testRepoRoot, testItem.Name, testItem.Version, "manifest.json")).Return(true).Once()
+			mockFileSys.On("Exists", path.Join(testRepoRoot, normalizeDirectory(testItem.State.Name), testItem.Version, "manifest.json")).Return(true).Once()
 			manifestContent, _ := jsonutil.Marshal(testItem.Manifest)
-			mockFileSys.On("ReadFile", path.Join(testRepoRoot, testItem.Name, testItem.Version, "manifest.json")).Return([]byte(manifestContent), nil).Once()
+			mockFileSys.On("ReadFile", path.Join(testRepoRoot, normalizeDirectory(testItem.State.Name), testItem.Version, "manifest.json")).Return([]byte(manifestContent), nil).Once()
 		}
 	}
 	mockFileSys.On("GetDirectoryNames", path.Join(testRepoRoot)).Return(mockPackages, nil).Once()

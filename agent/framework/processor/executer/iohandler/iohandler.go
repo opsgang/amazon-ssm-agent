@@ -28,7 +28,7 @@ import (
 
 const (
 	// maximumPluginOutputSize represents the maximum output size that agent supports
-	MaximumPluginOutputSize = 2400
+	MaximumPluginOutputSize = 2500
 	// truncateOut represents the string appended when output is truncated
 	truncateOut = "\n---Output truncated---"
 	// truncateError represents the string appended when error is truncated
@@ -136,8 +136,10 @@ func (out *DefaultIOHandler) Init(log log.T, filePath ...string) {
 
 	// Initialize console output module
 	stdoutConsole := iomodule.CommandOutput{
-		OutputLimit:  pluginConfig.MaxStdoutLength,
-		OutputString: &out.stdout,
+		OutputLimit:            pluginConfig.MaxStdoutLength,
+		OutputString:           &out.stdout,
+		FileName:               pluginConfig.StdoutFileName,
+		OrchestrationDirectory: fullPath,
 	}
 
 	log.Debug("Initializing the Stdout Multi-writer with file and console listeners")
@@ -155,8 +157,10 @@ func (out *DefaultIOHandler) Init(log log.T, filePath ...string) {
 
 	// Initialize console error module
 	stderrConsole := iomodule.CommandOutput{
-		OutputLimit:  pluginConfig.MaxStderrLength,
-		OutputString: &out.stderr,
+		OutputLimit:            pluginConfig.MaxStderrLength,
+		OutputString:           &out.stderr,
+		FileName:               pluginConfig.StderrFileName,
+		OrchestrationDirectory: fullPath,
 	}
 
 	log.Debug("Initializing the Stderr Multi-writer with file and console listeners")
