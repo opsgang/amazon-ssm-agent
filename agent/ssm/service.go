@@ -67,6 +67,7 @@ type Service interface {
 	DeleteDocument(log log.T, instanceID string) (response *ssm.DeleteDocumentOutput, err error)
 	DescribeAssociation(log log.T, instanceID string, docName string) (response *ssm.DescribeAssociationOutput, err error)
 	UpdateInstanceInformation(log log.T, agentVersion, agentStatus, agentName string) (response *ssm.UpdateInstanceInformationOutput, err error)
+	UpdateEmptyInstanceInformation(agentName string) (response *ssm.UpdateInstanceInformationOutput, err error)
 	GetParameters(log log.T, paramNames []string) (response *ssm.GetParametersOutput, err error)
 	GetDecryptedParameters(log log.T, paramNames []string) (response *ssm.GetParametersOutput, err error)
 }
@@ -298,6 +299,23 @@ func (svc *sdkService) UpdateInstanceInformation(
 		return
 	}
 	log.Debug("UpdateInstanceInformation Response", response)
+	return
+}
+
+//UpdateEmptyInstanceInformation calls the UpdateInstanceInformation SSM API with an empty ping.
+func (svc *sdkService) UpdateEmptyInstanceInformation(agentName string) (response *ssm.UpdateInstanceInformationOutput, err error) {
+	//TODO: combine this with UpdateInstanceInfo
+	params := ssm.UpdateInstanceInformationInput{
+		AgentName: aws.String(agentName),
+	}
+
+	// InstanceId is a required parameter for UpdateInstanceInformation
+	if instID, err := platform.InstanceID(); err == nil {
+		params.InstanceId = aws.String(instID)
+	} else {
+		return nil, err
+	}
+	response, err = svc.sdk.UpdateInstanceInformation(&params)
 	return
 }
 
