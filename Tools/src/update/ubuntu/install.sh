@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Installing deb pkg"
+echo "Installing ubuntu pkg"
 # helper function to set error output
 function error_exit
 {
@@ -40,7 +40,6 @@ if [[ "$(cat /proc/1/comm)" == "init" ]]; then
     # echo "Installing agent"
     dpkg -i amazon-ssm-agent.deb
 
-
     if [ "$DO_REGISTER" = true ]; then
 	    /sbin/stop amazon-ssm-agent
 	    amazon-ssm-agent -register -code "$RMI_CODE" -id "$RMI_ID" -region "$RMI_REGION"
@@ -57,11 +56,13 @@ elif [[ "$(cat /proc/1/comm)" == "systemd" ]]; then
 		systemctl stop amazon-ssm-agent
 		# echo "Agent stopped"
 		systemctl daemon-reload
-		# echo "Reload daemon"
+		# echo "Reload daemon" 
+			# echo "Installing agent"
 	else
-		echo "-> Agent is not running in the instance"
-	fi
+		echo "-> Agent is not running on the instance."
 
+	fi
+	
 	# echo "Installing agent"
 	dpkg -i amazon-ssm-agent.deb
 
@@ -74,6 +75,7 @@ elif [[ "$(cat /proc/1/comm)" == "systemd" ]]; then
 	systemctl daemon-reload
 	systemctl start amazon-ssm-agent
 	systemctl status amazon-ssm-agent
+
 else
 
     echo "The amazon-ssm-agent is not supported on this platform. Please visit the documentation for the list of supported platforms"

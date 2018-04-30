@@ -1,9 +1,21 @@
+#!/bin/bash
+
 echo "Preparing for install"
 if [ $(cat /proc/1/comm) = init ]
 then
     stop amazon-ssm-agent || true
 elif [ $(cat /proc/1/comm) = systemd ]
 then
+    echo "-> Systemd detected"
+    systemctl is-active snapd.service
+    if [ $? -eq 0 ]; then
+        # snap service is active and user install amazon-ssm-agent via snap
+        snap list | grep "amazon-ssm-agent"
+        if [ $? -eq 0 ]; then
+            echo "-> Amazon-ssm-agent is installed in this instance by snap, please use snap to update or uninstall."
+            exit 1
+        fi
+    fi
     systemctl stop amazon-ssm-agent
     systemctl daemon-reload
 fi
