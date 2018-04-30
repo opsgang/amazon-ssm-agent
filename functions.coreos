@@ -26,8 +26,8 @@ modify_src() {
     local bd="${1:-$(pwd)}"
     local f="$bd/agent/appconfig/constants_unix.go" # file to change
 
-    echo "1. ... change DefaultDocumentWorker constant to DefaultDocumentWorkerPath"
-    _rename_constant_DefaultDocumentWorker "$f" || return 1
+    echo "1. ... rename existing DefaultDocumentWorker var to DefaultDocumentWorkerPath"
+    _rename_existing_var_DefaultDocumentWorker "$f" || return 1
 
     echo "2. ... inserting new code making DefaultDocumentWorker a var"
     echo "       that can be set at agent run-time"
@@ -39,10 +39,12 @@ modify_src() {
 
 }
 
-_rename_constant_DefaultDocumentWorker() {
+_rename_existing_var_DefaultDocumentWorker() {
     [[ ! -w "$1" ]] && echo "ERROR: can't write to $1" >&2 && return 1
-    sed -i 's/^\([ \t]*DefaultDocumentWorker\)\( *=.*\)$/\1Path\2 /' $f
-    echo "... verifying constant has been renamed."
+
+    local f="$1"
+    sed -i 's/^\(\s*var DefaultDocumentWorker\)\( *=.*\)$/\1Path\2 /' $f
+    echo "... verifying existing var has been renamed."
     grep -P 'DefaultDocumentWorkerPath\s+=\s+' "$f"
 }
 
