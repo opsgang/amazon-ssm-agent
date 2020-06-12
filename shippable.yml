@@ -1,0 +1,52 @@
+# vim: et sr sw=2 ts=2 smartindent:
+#
+# Set to only build on git tag events and pull requests
+# in shippable console.
+language: none
+
+branches:
+  only:
+    - opsgang/*
+
+env:
+  global:
+    - GO_VER="1.12"
+
+build:
+
+  pre_ci:
+    - docker rmi opsgang/golang:ci 2>/dev/null ;
+      docker pull golang:$GO_VER && docker tag golang:$GO_VER opsgang/golang:ci
+
+  pre_ci_boot:
+    image_name: opsgang/golang
+    image_tag: ci
+    pull: false
+
+  ci:
+    - ./opsgang-build-binaries.sh
+
+  on_success:
+    - GITHUB_TOKEN=$GITHUB_OAUTH_TOKEN ./opsgang-release-binaries.sh
+
+integrations:
+  hub:
+    - integrationName: opsgang_dockerhubreg
+      type: dockerRegistryLogin
+      branches:
+        only:
+          - opsgang/*
+
+  generic:
+    - integrationName: GITHUB_OAUTH_TOKEN
+
+  notifications:
+    - integrationName: opsgang_slack_delivery
+      type: slack
+      recipients: "#delivery"
+      branches:
+        only:
+          - opsgang/*
+      on_success: always
+      on_failure: never
+      on_pull_request: never
