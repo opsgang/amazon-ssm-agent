@@ -29,3 +29,5 @@ Tools/src/github.com/
 Tools/src/golang.org/
 agent/managedInstances/sharedCredentials/example.ini
 build
+**/opsgang
+**/opsgang-tmp
